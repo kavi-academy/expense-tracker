@@ -14,98 +14,106 @@ RULES_FILE = "category_rules.json"
 RECURRING_FILE = "recurring_expenses.json"
 import json
 
+from googleapiclient.discovery import build
+
+import auth
+DATA_DIR = "data"
+
+def get_user_data_file():
+    """Returns the static filename for local mode."""
+    # Since we are using simple password auth for a single user (or shared admin),
+    # we default to the main data file.
+    return DATA_FILE
+
 def get_backend():
     """Determines if we should use Google Sheets or CSV."""
-    try:
-        # Check if secrets exist and have the key
-        if "gcp_service_account" in st.secrets:
-            return "sheets"
-    except Exception:
-        # Secrets file not found or key missing
-        pass
+    if "gcp_service_account" in st.secrets:
+        return "service_account"
     return "csv"
 
 def get_google_sheet_client():
     """Authenticates and returns the Google Sheet object."""
-    # Define the scope
     scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
-    # Load credentials from Streamlit secrets
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    
-    client = gspread.authorize(credentials)
-    
-    # Open the spreadsheet
-    # We expect a secret 'spreadsheet_url' or we can open by title if preferred, 
-    # but URL is safer.
-    if SHEET_URL_KEY in st.secrets:
-        sheet = client.open_by_url(st.secrets[SHEET_URL_KEY]).sheet1
-    else:
-        # Fallback: try to find a sheet named 'ExpenseTracker' or create it?
-        # For simplicity, let's assume if they went through the trouble of setting up
-        # service account, they setup the sheet.
-        try:
-            sheet = client.open("ExpenseTracker").sheet1
-        except:
-            st.error("Could not find Google Sheet. Please add 'spreadsheet_url' to secrets or name your sheet 'ExpenseTracker'.")
-            return None
-    return sheet
+    # Key-based Service Account
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        client = gspread.authorize(credentials)
+        if SHEET_URL_KEY in st.secrets:
+             try:
+                return client.open_by_url(st.secrets[SHEET_URL_KEY]).sheet1
+             except:
+                return None
+        else:
+            try:
+                # Find/Create a sheet named 'ExpenseTracker_Data'
+                # For service account, it only sees files it has access to.
+                # Simplest is to open by name if user shared it, or create new.
+                try:
+                    return client.open("ExpenseTracker_Data").sheet1
+                except gspread.exceptions.SpreadsheetNotFound:
+                    # Create if allowed (Service accounts can create sheets)
+                    sh = client.create("ExpenseTracker_Data")
+                    # IMPORTANT: Service account email needs to share it with user?
+                    # Actually, for personal use, user usually creates sheet and shares with SA email.
+                    st.toast(f"Created new sheet. Share it with your personal email!")
+                    return sh.sheet1
+            except:
+                return None
+    return None
 
 def load_data():
     """Loads expense data from CSV or Google Sheets."""
     backend = get_backend()
     
-    if backend == "sheets":
+    if backend == "service_account":
         try:
             sheet = get_google_sheet_client()
             if not sheet: 
-                return pd.DataFrame(columns=COLUMNS)
+                # Fallback to local if sheet fails
+                st.warning("⚠️ Could not connect to Google Sheet. Using local CSV temporarily.")
+            else:
+                data = sheet.get_all_records()
+                if not data:
+                    return pd.DataFrame(columns=COLUMNS)
                 
-            data = sheet.get_all_records()
-            if not data:
-                return pd.DataFrame(columns=COLUMNS)
-                
-            df = pd.DataFrame(data)
-            
-            # Ensure columns exist even if sheet is empty but has headers
-            if df.empty:
-                return pd.DataFrame(columns=COLUMNS)
+                df = pd.DataFrame(data)
+                if df.empty:
+                    return pd.DataFrame(columns=COLUMNS)
 
-            # Cleanup: Ensure all standard columns exist
-            for col in COLUMNS:
-                if col not in df.columns:
-                    df[col] = ""
+                # Ensure proper columns
+                for col in COLUMNS:
+                    if col not in df.columns:
+                        df[col] = ""
 
-            # Ensure proper types
-            df["Date"] = pd.to_datetime(df["Date"]).dt.date
-            df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
-            return df[COLUMNS] # Reorder to standard
-            
-        except Exception as e:
-            st.error(f"Google Sheets Error: {e}")
-            return pd.DataFrame(columns=COLUMNS)
-            
-    else:
-        # Fallback to CSV
-        if os.path.exists(DATA_FILE):
-            try:
-                df = pd.read_csv(DATA_FILE)
                 # Ensure proper types
                 df["Date"] = pd.to_datetime(df["Date"]).dt.date
                 df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
+                return df[COLUMNS] 
                 
-                # Verify columns
-                for col in COLUMNS:
-                     if col not in df.columns:
-                        df[col] = ""
-                        
-                return df
-            except Exception as e:
-                print(f"Error loading data: {e}")
-                return pd.DataFrame(columns=COLUMNS)
-        else:
+        except Exception as e:
+            st.error(f"Google Sheets Error: {e}")
             return pd.DataFrame(columns=COLUMNS)
+    
+    # Fallback/Default to CSV
+    # (Existing CSV logic below)
+    data_file = get_user_data_file()
+    
+    if data_file and os.path.exists(data_file):
+        try:
+            df = pd.read_csv(data_file)
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
+            for col in COLUMNS:
+                 if col not in df.columns:
+                    df[col] = ""
+            return df
+        except Exception as e:
+            st.error(f"Error loading data: {e}")
+            return pd.DataFrame(columns=COLUMNS)
+    else:
+        return pd.DataFrame(columns=COLUMNS)
 
 def save_data(df):
     """Saves expense data to CSV or Google Sheets."""
@@ -114,22 +122,28 @@ def save_data(df):
     # Ensure Date is string for storage stability
     df_store = df.copy()
     df_store["Date"] = df_store["Date"].astype(str)
-    
-    if backend == "sheets":
+
+    if backend == "service_account":
         try:
             sheet = get_google_sheet_client()
             if sheet:
-                # Clear and write all (simplest way to ensure consistency)
-                # For very large datasets, this is bad, but for personal finance (<2000 rows), it's fine.
                 sheet.clear()
-                # Update headers
                 sheet.append_row(df_store.columns.tolist())
-                # Update values
                 sheet.append_rows(df_store.values.tolist())
+                return
         except Exception as e:
             st.error(f"Failed to save to Google Sheets: {e}")
-    else:
-        df_store.to_csv(DATA_FILE, index=False)
+            # Fall through to local save as backup
+
+    # Local Save
+    data_file = get_user_data_file()
+    if not data_file: 
+        return # Should not happen if correctly configured
+
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        
+    df_store.to_csv(data_file, index=False)
 
 def load_rules():
     """Loads categorization rules from JSON."""

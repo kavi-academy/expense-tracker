@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import data_handler as dh
 from datetime import datetime
+import auth
 
 # Page Configuration
 st.set_page_config(
@@ -33,21 +34,26 @@ st.markdown("""
 def main():
     st.title("💰 Personal Expense Tracker")
     st.markdown("---")
+    
+    # 🔒 Authentication Flow
+    if not auth.check_password():
+        st.stop()  # Stop execution if not authenticated
+
+    # User Profile & Logout
+    if st.sidebar.button("🚪 Logout"):
+        auth.logout()
+    st.sidebar.divider()
 
     # Load Data
-    df = dh.load_data()
+    with st.spinner("📂 Loading your expense data..."):
+        df = dh.load_data()
 
     # Sidebar
     st.sidebar.header("Navigation")
     
     # Storage Status
     backend = dh.get_backend()
-    if backend == "sheets":
-        st.sidebar.success("🟢 Storage: Google Sheets")
-    else:
-        st.sidebar.warning("🟠 Storage: Local CSV")
-        
-        st.sidebar.warning("🟠 Storage: Local CSV")
+    st.sidebar.info("🟢 Storage: Local (Encrypted User DB)")
         
     page = st.sidebar.radio("Go to", ["Dashboard", "Add Expenses", "Data View", "Settings"])
 
