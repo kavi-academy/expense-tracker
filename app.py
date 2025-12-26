@@ -5,6 +5,7 @@ import data_handler as dh
 from datetime import datetime
 import auth
 import account_manager as am
+import category_manager as cm
 
 # Page Configuration
 st.set_page_config(
@@ -296,13 +297,10 @@ def show_add_expenses():
                 
                 account = st.selectbox("Account", account_names, index=default_idx)
                 
-                # Allow custom categories via "Other" or just editable? 
-                # Let's use a standard list + Medicine, but allow typing if we switched to a different input method.
-                # For now, adding Medicine to the list.
-                default_cats = ["Food", "Transport", "Utilities", "Entertainment", "Shopping", "Rent", "Salary", "Investment", "Medicine", "Other"]
-                category = st.selectbox("Category", default_cats)
-                if category == "Other":
-                    category = st.text_input("Enter Custom Category")
+                # Dynamic categories from category_manager
+                all_categories = cm.get_category_names()
+                category = st.selectbox("Category", all_categories)
+                
                 description = st.text_input("Description")
                 tags = st.text_input("Tags (comma separated, e.g. #vacation, #food)")
             
@@ -373,6 +371,72 @@ def show_data_view(df):
 
 def show_settings():
     st.header("⚙️ Settings")
+    
+    # Category Management Section
+    st.subheader("📂 Category Management")
+    st.markdown("Manage your expense and income categories.")
+    
+    # Initialize categories
+    cm.initialize_categories()
+    categories = cm.get_all_categories()
+    
+    # Add New Category
+    with st.expander("➕ Add New Category", expanded=False):
+        with st.form("add_category_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_cat_name = st.text_input("Category Name", placeholder="e.g. Gym")
+            with col2:
+                new_cat_type = st.selectbox("Type", ["Expense", "Income"])
+            
+            is_default = st.checkbox("Set as default for uploads")
+            
+            if st.form_submit_button("Add Category", type="primary"):
+                if new_cat_name:
+                    success = cm.create_category(new_cat_name, new_cat_type, is_default)
+                    if success:
+                        st.success(f"✅ Category '{new_cat_name}' created!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Category already exists.")
+                else:
+                    st.error("Please enter a category name.")
+    
+    # Display Existing Categories
+    st.write("### Your Categories")
+    
+    if categories:
+        # Separate by type
+        expense_cats = [cat for cat in categories if cat["type"] == "Expense"]
+        income_cats = [cat for cat in categories if cat["type"] == "Income"]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**💸 Expense Categories**")
+            for cat in expense_cats:
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    default_badge = "⭐ " if cat.get("is_default", False) else ""
+                    st.write(f"{default_badge}{cat['name']}")
+                with c2:
+                    if not cat.get("is_default", False):
+                        if st.button("🗑️", key=f"del_cat_{cat['id']}"):
+                            cm.delete_category(cat['name'])
+                            st.rerun()
+        
+        with col2:
+            st.write("**💰 Income Categories**")
+            for cat in income_cats:
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.write(cat['name'])
+                with c2:
+                    if st.button("🗑️", key=f"del_cat_{cat['id']}"):
+                        cm.delete_category(cat['name'])
+                        st.rerun()
+    
+    st.divider()
     
     st.subheader("Auto-Categorization Rules")
     st.markdown("Define rules to automatically categorize transactions based on keywords in the description.")

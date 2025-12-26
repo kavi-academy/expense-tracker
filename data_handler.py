@@ -13,6 +13,7 @@ RULES_FILE = "category_rules.json"
 RECURRING_FILE = "recurring_expenses.json"
 import json
 import account_manager as am
+import category_manager as cm
 
 from googleapiclient.discovery import build
 
@@ -334,10 +335,12 @@ def process_upload(uploaded_file):
              new_df["Type"] = "Expense"
         
         if "Payment Method" not in new_df.columns:
-            new_df["Payment Method"] = "Transfer" # Default for bank uploads
+            new_df["Payment Method"] = "UPI"  # Default to UPI instead of Transfer
             
         if "Category" not in new_df.columns:
-            new_df["Category"] = "Uncategorized"
+            # Use default category (Others) for uploads
+            default_category = cm.get_default_category()
+            new_df["Category"] = default_category["name"] if default_category else "Others"
         if "Description" not in new_df.columns:
             new_df["Description"] = "Imported Transaction"
         if "Source" not in new_df.columns:

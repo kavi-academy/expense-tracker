@@ -1,0 +1,92 @@
+[
+    {
+        "id": "food",
+        "name": "Food",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "transport",
+        "name": "Transport",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "entertainment",
+        "name": "Entertainment",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "medicals",
+        "name": "MEDICALS",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "groceries",
+        "name": "Groceries",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "others",
+        "name": "Others",
+        "type": "Expense",
+        "is_default": true
+    },
+    {
+        "id": "shopping",
+        "name": "Shopping",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "bills_utilities",
+        "name": "Bills and Utilities",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "education",
+        "name": "Education",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "rent",
+        "name": "Rent",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "home",
+        "name": "Home",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "chit",
+        "name": "Chit",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "insurance",
+        "name": "Insurance",
+        "type": "Expense",
+        "is_default": false
+    },
+    {
+        "id": "salary",
+        "name": "Salary",
+        "type": "Income",
+        "is_default": false
+    },
+    {
+        "id": "investment",
+        "name": "Investment",
+        "type": "Income",
+        "is_default": false
+    }
+]
