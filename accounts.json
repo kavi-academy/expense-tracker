@@ -1,0 +1,18 @@
+[
+    {
+        "id": "main_account",
+        "name": "Main Account",
+        "type": "Bank Account",
+        "description": "Default account",
+        "status": "Active",
+        "is_default": true
+    },
+    {
+        "id": "hdfc_credit_card",
+        "name": "HDFC Credit Card",
+        "type": "Credit Card",
+        "description": "Primary credit card",
+        "status": "Active",
+        "is_default": false
+    }
+]

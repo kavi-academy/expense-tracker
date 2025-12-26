@@ -36,6 +36,10 @@ def check_password():
     # helper to check state
     def password_entered():
         """Checks whether a password entered by the user is correct."""
+        # Safeguard: check if password key exists before accessing
+        if "password" not in st.session_state:
+            return
+            
         if st.session_state["password"] == st.secrets["app_password"]:
             st.session_state["password_correct"] = True
             st.session_state["auth_attempts"] = 0 # Reset on success

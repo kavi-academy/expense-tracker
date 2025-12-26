@@ -4,6 +4,7 @@ import plotly.express as px
 import data_handler as dh
 from datetime import datetime
 import auth
+import account_manager as am
 
 # Page Configuration
 st.set_page_config(
@@ -58,7 +59,7 @@ def main():
     else:
         st.sidebar.warning("🟠 Storage: Local CSV (Temporary)")
         
-    page = st.sidebar.radio("Go to", ["Dashboard", "Add Expenses", "Data View", "Settings"])
+    page = st.sidebar.radio("Go to", ["Dashboard", "Add Expenses", "Data View", "Accounts", "Settings"])
 
     if page == "Dashboard":
         show_dashboard(df)
@@ -66,6 +67,8 @@ def main():
         show_add_expenses()
     elif page == "Data View":
         show_data_view(df)
+    elif page == "Accounts":
+        show_accounts()
     elif page == "Settings":
         show_settings()
 
@@ -79,7 +82,65 @@ def show_dashboard(df):
     
     # --- Filters ---
     st.sidebar.subheader("🔍 Filters")
-    date_filter = st.sidebar.date_input("Date Range", [])
+    
+    # Time Period Selector
+    time_period = st.sidebar.radio(
+        "Time Period",
+        ["Monthly", "Yearly", "All-time"],
+        index=0,  # Default to Monthly
+        horizontal=True
+    )
+    
+    # Apply time period filter
+    filtered_df = df.copy()
+    
+    if time_period == "Monthly":
+        # Get current month or allow selection
+        current_date = datetime.now()
+        available_months = sorted(pd.to_datetime(df["Date"]).dt.to_period('M').unique(), reverse=True)
+        
+        if len(available_months) > 0:
+            month_options = [str(m) for m in available_months]
+            current_month_str = f"{current_date.year}-{current_date.month:02d}"
+            default_idx = month_options.index(current_month_str) if current_month_str in month_options else 0
+            
+            selected_month = st.sidebar.selectbox(
+                "Select Month",
+                month_options,
+                index=default_idx
+            )
+            
+            # Filter by selected month
+            filtered_df["Date_Period"] = pd.to_datetime(filtered_df["Date"]).dt.to_period('M')
+            filtered_df = filtered_df[filtered_df["Date_Period"] == selected_month]
+            filtered_df = filtered_df.drop(columns=["Date_Period"])
+    
+    elif time_period == "Yearly":
+        # Get current year or allow selection
+        current_year = datetime.now().year
+        available_years = pd.to_datetime(df["Date"]).dt.year.unique()
+        available_years = sorted(available_years, reverse=True)
+        
+        if len(available_years) > 0:
+            default_idx = list(available_years).index(current_year) if current_year in available_years else 0
+            selected_year = st.sidebar.selectbox(
+                "Select Year",
+                available_years,
+                index=default_idx
+            )
+            
+            # Filter by selected year
+            filtered_df = filtered_df[pd.to_datetime(filtered_df["Date"]).dt.year == selected_year]
+    
+    # All-time: no additional filtering needed
+    
+    # Additional filters
+    date_filter = st.sidebar.date_input("Custom Date Range (Optional)", [])
+    
+    # Account Filter
+    if "Account" in filtered_df.columns:
+        unique_accounts = sorted(filtered_df["Account"].unique().tolist())
+        account_filter = st.sidebar.multiselect("Account", unique_accounts)
     
     unique_categories = sorted(df["Category"].unique().tolist())
     category_filter = st.sidebar.multiselect("Category", unique_categories)
@@ -88,13 +149,14 @@ def show_dashboard(df):
     type_filter = st.sidebar.multiselect("Transaction Type", unique_types)
     
     # Apply Filters
-    filtered_df = df.copy()
     if date_filter and len(date_filter) == 2:
         start_date, end_date = date_filter
         filtered_df = filtered_df[
             (pd.to_datetime(filtered_df["Date"]).dt.date >= start_date) & 
             (pd.to_datetime(filtered_df["Date"]).dt.date <= end_date)
         ]
+    if account_filter:
+        filtered_df = filtered_df[filtered_df["Account"].isin(account_filter)]
     if category_filter:
         filtered_df = filtered_df[filtered_df["Category"].isin(category_filter)]
     if type_filter:
@@ -117,7 +179,7 @@ def show_dashboard(df):
     # But for "This Month" delta, we need global context or just relative to something?
     # Let's keep the metrics simple: Show totals for the selected period
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Income", f"₹{total_income:,.2f}")
     with col2:
@@ -127,6 +189,10 @@ def show_dashboard(df):
     with col4:
         savings = total_income - total_expenses
         st.metric("Net Savings", f"₹{savings:,.2f}", delta_color="normal" if savings > 0 else "inverse")
+    with col5:
+        # Account count
+        active_accounts = len(am.get_active_accounts())
+        st.metric("Active Accounts", active_accounts)
 
     st.markdown("---")
 
@@ -140,12 +206,13 @@ def show_dashboard(df):
             st.plotly_chart(cat_fig, use_container_width=True)
 
     with col2:
-        st.subheader("Daily Spending Trend")
-        if not expense_df.empty:
-            # Aggregate by date
-            daily_df = expense_df.groupby("Date")["Amount"].sum().reset_index()
-            trend_fig = px.bar(daily_df, x='Date', y='Amount', title='')
-            st.plotly_chart(trend_fig, use_container_width=True)
+        st.subheader("Spending by Account")
+        if not expense_df.empty and "Account" in expense_df.columns:
+            account_fig = px.bar(expense_df.groupby("Account")["Amount"].sum().reset_index(), 
+                               x='Account', y='Amount', title='')
+            st.plotly_chart(account_fig, use_container_width=True)
+        else:
+            st.info("No account data available")
             
     st.markdown("---")
     
@@ -218,13 +285,22 @@ def show_add_expenses():
                 amount = st.number_input("Amount", min_value=0.0, step=0.01)
             with col2:
                 payment_method = st.selectbox("Payment Method", ["UPI", "Cash", "Credit Card", "Transfer"])
+                
+                # Account Selection
+                active_accounts = am.get_active_accounts()
+                account_names = [acc["name"] for acc in active_accounts]
+                default_account = am.get_default_account()
+                default_idx = 0
+                if default_account and default_account["name"] in account_names:
+                    default_idx = account_names.index(default_account["name"])
+                
+                account = st.selectbox("Account", account_names, index=default_idx)
+                
                 # Allow custom categories via "Other" or just editable? 
                 # Let's use a standard list + Medicine, but allow typing if we switched to a different input method.
                 # For now, adding Medicine to the list.
                 default_cats = ["Food", "Transport", "Utilities", "Entertainment", "Shopping", "Rent", "Salary", "Investment", "Medicine", "Other"]
                 category = st.selectbox("Category", default_cats)
-                if category == "Other":
-                    category = st.text_input("Enter Custom Category")
                 if category == "Other":
                     category = st.text_input("Enter Custom Category")
                 description = st.text_input("Description")
@@ -233,7 +309,7 @@ def show_add_expenses():
             submitted = st.form_submit_button("Add Transaction")
             if submitted:
                 if amount > 0:
-                    dh.add_entry(date, category, amount, description, type, payment_method, str(time), tags)
+                    dh.add_entry(date, category, amount, description, type, payment_method, account, str(time), tags)
                     st.success("Expense added successfully!")
                     st.rerun() # Refresh to update data
                 else:
@@ -383,6 +459,87 @@ def show_settings():
                     rec_profiles.pop(i)
                     dh.save_recurring(rec_profiles)
                     st.rerun()
+
+def show_accounts():
+    st.header("💳 Account Management")
+    st.markdown("Manage your payment accounts (bank accounts, credit cards, cash, digital wallets)")
+    
+    # Initialize accounts
+    am.initialize_accounts()
+    accounts = am.get_all_accounts()
+    
+    # Add New Account
+    st.subheader("➕ Add New Account")
+    with st.form("add_account_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            acc_name = st.text_input("Account Name", placeholder="e.g. HDFC Credit Card")
+        with col2:
+            acc_type = st.selectbox("Account Type", am.get_account_types())
+        with col3:
+            acc_desc = st.text_input("Description (Optional)", placeholder="e.g. Primary card")
+        
+        is_default = st.checkbox("Set as default account")
+        
+        if st.form_submit_button("Add Account", type="primary"):
+            if acc_name:
+                success = am.create_account(acc_name, acc_type, acc_desc, is_default)
+                if success:
+                    st.success(f"✅ Account '{acc_name}' created successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Account with this name already exists.")
+            else:
+                st.error("Please enter an account name.")
+    
+    st.divider()
+    
+    # Display Existing Accounts
+    st.subheader("📋 Your Accounts")
+    
+    if accounts:
+        for acc in accounts:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+                
+                with col1:
+                    default_badge = "⭐ " if acc.get("is_default", False) else ""
+                    st.markdown(f"### {default_badge}{acc['name']}")
+                    st.caption(f"Type: {acc['type']}")
+                
+                with col2:
+                    status_color = "🟢" if acc['status'] == "Active" else "🔴"
+                    st.write(f"{status_color} {acc['status']}")
+                    if acc.get('description'):
+                        st.caption(acc['description'])
+                
+                with col3:
+                    # Show transaction count for this account
+                    df = dh.load_data()
+                    if not df.empty and "Account" in df.columns:
+                        acc_transactions = df[df["Account"] == acc["name"]]
+                        st.metric("Transactions", len(acc_transactions))
+                
+                with col4:
+                    # Action buttons
+                    if not acc.get("is_default", False):
+                        if st.button("Set Default", key=f"default_{acc['id']}"):
+                            am.set_default_account(acc['name'])
+                            st.success(f"Set {acc['name']} as default")
+                            st.rerun()
+                    
+                    if not acc.get("is_default", False):
+                        if st.button("🗑️ Delete", key=f"del_{acc['id']}"):
+                            success = am.delete_account(acc['name'])
+                            if success:
+                                st.success(f"Deleted {acc['name']}")
+                                st.rerun()
+                            else:
+                                st.error("Cannot delete default account")
+                
+                st.divider()
+    else:
+        st.info("No accounts found. Add your first account above!")
 
 if __name__ == "__main__":
     main()

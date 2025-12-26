@@ -7,12 +7,12 @@ from google.oauth2.service_account import Credentials
 
 # Configuration
 DATA_FILE = "expenses.csv"
-COLUMNS = ["Date", "Time", "Type", "Category", "Amount", "Payment Method", "Description", "Source", "Tags"]
-COLUMNS = ["Date", "Time", "Type", "Category", "Amount", "Payment Method", "Description", "Source", "Tags"]
+COLUMNS = ["Date", "Time", "Type", "Category", "Amount", "Payment Method", "Account", "Description", "Source", "Tags"]
 SHEET_URL_KEY = "spreadsheet_url"
 RULES_FILE = "category_rules.json"
 RECURRING_FILE = "recurring_expenses.json"
 import json
+import account_manager as am
 
 from googleapiclient.discovery import build
 
@@ -63,6 +63,16 @@ def get_google_sheet_client():
                 return None
     return None
 
+def migrate_data_for_accounts(df):
+    """Migrates existing data to include Account column."""
+    if "Account" not in df.columns:
+        # Initialize accounts if needed
+        am.initialize_accounts()
+        default_account = am.get_default_account()
+        default_name = default_account["name"] if default_account else "Main Account"
+        df["Account"] = default_name
+    return df
+
 def load_data():
     """Loads expense data from CSV or Google Sheets."""
     backend = get_backend()
@@ -90,6 +100,10 @@ def load_data():
                 # Ensure proper types
                 df["Date"] = pd.to_datetime(df["Date"]).dt.date
                 df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
+                
+                # Migrate for accounts
+                df = migrate_data_for_accounts(df)
+                
                 return df[COLUMNS] 
                 
         except Exception as e:
@@ -105,6 +119,10 @@ def load_data():
             df = pd.read_csv(data_file)
             df["Date"] = pd.to_datetime(df["Date"]).dt.date
             df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
+            
+            # Migrate for accounts
+            df = migrate_data_for_accounts(df)
+            
             for col in COLUMNS:
                  if col not in df.columns:
                     df[col] = ""
@@ -219,7 +237,7 @@ def get_pending_recurring(df):
             
     return pending
 
-def add_entry(date, category, amount, description, type, payment_method, time="00:00", tags="", source="Manual"):
+def add_entry(date, category, amount, description, type, payment_method, account="Main Account", time="00:00", tags="", source="Manual"):
     """Adds a single expense entry."""
     # We load, append, and save. 
     # This might seem inefficient for Sheets (vs just append_row), 
@@ -234,6 +252,7 @@ def add_entry(date, category, amount, description, type, payment_method, time="0
         "Category": category,
         "Amount": float(amount),
         "Payment Method": payment_method,
+        "Account": account,
         "Description": description,
         "Source": source,
         "Tags": tags
@@ -327,6 +346,10 @@ def process_upload(uploaded_file):
             new_df["Tags"] = ""
         if "Time" not in new_df.columns:
             new_df["Time"] = "00:00"
+        if "Account" not in new_df.columns:
+            # Use default account for uploads
+            default_account = am.get_default_account()
+            new_df["Account"] = default_account["name"] if default_account else "Main Account"
             
         # Apply Auto-Categorization Rules
         new_df = apply_categorization(new_df)
