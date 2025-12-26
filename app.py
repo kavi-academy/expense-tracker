@@ -53,7 +53,10 @@ def main():
     
     # Storage Status
     backend = dh.get_backend()
-    st.sidebar.info("🟢 Storage: Local (Encrypted User DB)")
+    if backend == "service_account":
+        st.sidebar.success("🟢 Storage: Google Sheets (Cloud)")
+    else:
+        st.sidebar.warning("🟠 Storage: Local CSV (Temporary)")
         
     page = st.sidebar.radio("Go to", ["Dashboard", "Add Expenses", "Data View", "Settings"])
 
