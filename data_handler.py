@@ -32,37 +32,67 @@ def get_backend():
         return "service_account"
     return "csv"
 
-def get_google_sheet_client():
-    """Authenticates and returns the Google Sheet object."""
-    scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    
-    # Key-based Service Account
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        client = gspread.authorize(credentials)
-        if SHEET_URL_KEY in st.secrets:
-             try:
-                return client.open_by_url(st.secrets[SHEET_URL_KEY]).sheet1
-             except:
-                return None
-        else:
-            try:
-                # Find/Create a sheet named 'ExpenseTracker_Data'
-                # For service account, it only sees files it has access to.
-                # Simplest is to open by name if user shared it, or create new.
+def get_spreadsheet():
+    """Returns the Google Sheets spreadsheet object or None."""
+    try:
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        
+        if "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+            client = gspread.authorize(credentials)
+            
+            if SHEET_URL_KEY in st.secrets:
+                return client.open_by_url(st.secrets[SHEET_URL_KEY])
+            else:
                 try:
-                    return client.open("ExpenseTracker_Data").sheet1
+                    return client.open("ExpenseTracker_Data")
                 except gspread.exceptions.SpreadsheetNotFound:
-                    # Create if allowed (Service accounts can create sheets)
                     sh = client.create("ExpenseTracker_Data")
-                    # IMPORTANT: Service account email needs to share it with user?
-                    # Actually, for personal use, user usually creates sheet and shares with SA email.
-                    st.toast(f"Created new sheet. Share it with your personal email!")
-                    return sh.sheet1
-            except:
-                return None
+                    return sh
+    except:
+        return None
     return None
+
+def get_or_create_worksheet(sheet_name: str):
+    """Gets or creates a worksheet by name in the spreadsheet."""
+    try:
+        spreadsheet = get_spreadsheet()
+        if not spreadsheet:
+            return None
+        
+        try:
+            return spreadsheet.worksheet(sheet_name)
+        except:
+            # Create if doesn't exist
+            return spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
+    except:
+        return None
+
+def read_sheet_as_dict(sheet_name: str):
+    """Reads a sheet and returns data as list of dictionaries."""
+    try:
+        worksheet = get_or_create_worksheet(sheet_name)
+        if worksheet:
+            data = worksheet.get_all_records()
+            return data if data else []
+    except:
+        pass
+    return []
+
+def write_dict_to_sheet(sheet_name: str, data: list):
+    """Writes list of dictionaries to a sheet."""
+    try:
+        worksheet = get_or_create_worksheet(sheet_name)
+        if worksheet and data:
+            df = pd.DataFrame(data)
+            worksheet.clear()
+            worksheet.append_row(df.columns.tolist())
+            worksheet.append_rows(df.values.tolist())
+            return True
+    except:
+        pass
+    return False
 
 def migrate_data_for_accounts(df):
     """Migrates existing data to include Account column."""
@@ -80,12 +110,13 @@ def load_data():
     
     if backend == "service_account":
         try:
-            sheet = get_google_sheet_client()
-            if not sheet: 
+            # Use Transactions sheet
+            worksheet = get_or_create_worksheet("Transactions")
+            if not worksheet: 
                 # Fallback to local if sheet fails
                 st.warning("⚠️ Could not connect to Google Sheet. Using local CSV temporarily.")
             else:
-                data = sheet.get_all_records()
+                data = worksheet.get_all_records()
                 if not data:
                     return pd.DataFrame(columns=COLUMNS)
                 
@@ -144,11 +175,11 @@ def save_data(df):
 
     if backend == "service_account":
         try:
-            sheet = get_google_sheet_client()
-            if sheet:
-                sheet.clear()
-                sheet.append_row(df_store.columns.tolist())
-                sheet.append_rows(df_store.values.tolist())
+            worksheet = get_or_create_worksheet("Transactions")
+            if worksheet:
+                worksheet.clear()
+                worksheet.append_row(df_store.columns.tolist())
+                worksheet.append_rows(df_store.values.tolist())
                 return
         except Exception as e:
             st.error(f"Failed to save to Google Sheets: {e}")

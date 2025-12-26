@@ -2,11 +2,12 @@ import json
 import os
 from typing import List, Dict, Optional
 
-CATEGORIES_FILE = "categories.json"
+CATEGORIES_FILE = "categories.json"  # Fallback only
 
 def initialize_categories():
-    """Creates default categories file if it doesn't exist."""
-    if not os.path.exists(CATEGORIES_FILE):
+    """Creates default categories if they don't exist."""
+    categories = load_categories()
+    if not categories:
         # Default categories based on user's list
         default_categories = [
             {"id": "food", "name": "Food", "type": "Expense", "is_default": False},
@@ -28,10 +29,22 @@ def initialize_categories():
         ]
         save_categories(default_categories)
         return default_categories
-    return load_categories()
+    return categories
 
 def load_categories() -> List[Dict]:
-    """Loads all categories from JSON file."""
+    """Loads all categories from Excel/Google Sheets or JSON fallback."""
+    try:
+        # Try to load from Excel/Sheets first
+        from data_handler import read_sheet_as_dict, get_backend
+        
+        if get_backend() == "service_account":
+            categories = read_sheet_as_dict("Categories")
+            if categories:
+                return categories
+    except:
+        pass
+    
+    # Fallback to JSON
     if os.path.exists(CATEGORIES_FILE):
         try:
             with open(CATEGORIES_FILE, "r") as f:
@@ -41,7 +54,17 @@ def load_categories() -> List[Dict]:
     return []
 
 def save_categories(categories: List[Dict]):
-    """Saves categories to JSON file."""
+    """Saves categories to Excel/Google Sheets and JSON fallback."""
+    # Save to Excel/Sheets
+    try:
+        from data_handler import write_dict_to_sheet, get_backend
+        
+        if get_backend() == "service_account":
+            write_dict_to_sheet("Categories", categories)
+    except:
+        pass
+    
+    # Also save to JSON as fallback
     with open(CATEGORIES_FILE, "w") as f:
         json.dump(categories, f, indent=4)
 

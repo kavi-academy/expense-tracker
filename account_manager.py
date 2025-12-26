@@ -2,11 +2,12 @@ import json
 import os
 from typing import List, Dict, Optional
 
-ACCOUNTS_FILE = "accounts.json"
+ACCOUNTS_FILE = "accounts.json"  # Fallback only
 
 def initialize_accounts():
-    """Creates default accounts file if it doesn't exist."""
-    if not os.path.exists(ACCOUNTS_FILE):
+    """Creates default accounts if they don't exist."""
+    accounts = load_accounts()
+    if not accounts:
         default_accounts = [
             {
                 "id": "main_account",
@@ -19,10 +20,22 @@ def initialize_accounts():
         ]
         save_accounts(default_accounts)
         return default_accounts
-    return load_accounts()
+    return accounts
 
 def load_accounts() -> List[Dict]:
-    """Loads all accounts from JSON file."""
+    """Loads all accounts from Excel/Google Sheets or JSON fallback."""
+    try:
+        # Try to load from Excel/Sheets first
+        from data_handler import read_sheet_as_dict, get_backend
+        
+        if get_backend() == "service_account":
+            accounts = read_sheet_as_dict("Accounts")
+            if accounts:
+                return accounts
+    except:
+        pass
+    
+    # Fallback to JSON
     if os.path.exists(ACCOUNTS_FILE):
         try:
             with open(ACCOUNTS_FILE, "r") as f:
@@ -32,7 +45,17 @@ def load_accounts() -> List[Dict]:
     return []
 
 def save_accounts(accounts: List[Dict]):
-    """Saves accounts to JSON file."""
+    """Saves accounts to Excel/Google Sheets and JSON fallback."""
+    # Save to Excel/Sheets
+    try:
+        from data_handler import write_dict_to_sheet, get_backend
+        
+        if get_backend() == "service_account":
+            write_dict_to_sheet("Accounts", accounts)
+    except:
+        pass
+    
+    # Also save to JSON as fallback
     with open(ACCOUNTS_FILE, "w") as f:
         json.dump(accounts, f, indent=4)
 
