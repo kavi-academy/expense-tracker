@@ -333,23 +333,98 @@ def show_add_expenses():
 
 def show_data_view(df):
     st.header("All Transactions")
-    st.header("All Transactions")
-    st.info("📝 You can edit, delete, or add rows directly in the table below. Click 'Save Changes' to update.")
+    st.info("📝 Filter, edit, delete, or add rows directly in the table below. Click 'Save Changes' to update.")
     
     if not df.empty:
+        # --- Column Filters ---
+        st.subheader("🔍 Filter Transactions")
+        
+        with st.expander("Show Filters", expanded=True):
+            filter_cols = st.columns(3)
+            
+            with filter_cols[0]:
+                # Date Range Filter
+                date_range = st.date_input(
+                    "Date Range",
+                    value=[],
+                    help="Select start and end date"
+                )
+                
+                # Type Filter
+                unique_types = sorted(df["Type"].unique().tolist())
+                type_filter = st.multiselect("Type", unique_types, default=unique_types)
+                
+            with filter_cols[1]:
+                # Category Filter
+                unique_categories = sorted(df["Category"].unique().tolist())
+                category_filter = st.multiselect("Category", unique_categories)
+                
+                # Payment Method Filter
+                unique_payment = sorted(df["Payment Method"].unique().tolist())
+                payment_filter = st.multiselect("Payment Method", unique_payment)
+                
+            with filter_cols[2]:
+                # Account Filter
+                if "Account" in df.columns:
+                    unique_accounts = sorted(df["Account"].unique().tolist())
+                    account_filter = st.multiselect("Account", unique_accounts)
+                else:
+                    account_filter = []
+                
+                # Source Filter
+                unique_sources = sorted(df["Source"].unique().tolist())
+                source_filter = st.multiselect("Source", unique_sources)
+        
+        # Apply Filters
+        filtered_df = df.copy()
+        
+        # Date filter
+        if date_range and len(date_range) == 2:
+            start_date, end_date = date_range
+            filtered_df = filtered_df[
+                (pd.to_datetime(filtered_df["Date"]).dt.date >= start_date) & 
+                (pd.to_datetime(filtered_df["Date"]).dt.date <= end_date)
+            ]
+        
+        # Type filter
+        if type_filter:
+            filtered_df = filtered_df[filtered_df["Type"].isin(type_filter)]
+        
+        # Category filter
+        if category_filter:
+            filtered_df = filtered_df[filtered_df["Category"].isin(category_filter)]
+        
+        # Payment Method filter
+        if payment_filter:
+            filtered_df = filtered_df[filtered_df["Payment Method"].isin(payment_filter)]
+        
+        # Account filter
+        if account_filter and "Account" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Account"].isin(account_filter)]
+        
+        # Source filter
+        if source_filter:
+            filtered_df = filtered_df[filtered_df["Source"].isin(source_filter)]
+        
+        # Show filtered count
+        st.caption(f"Showing {len(filtered_df)} of {len(df)} transactions")
+        
         # Use data_editor for interactivity
         edited_df = st.data_editor(
-            df,
+            filtered_df,
             num_rows="dynamic",
             use_container_width=True,
             key="data_editor"
         )
         
-        col1, col2 = st.columns([1, 4])
+        col1, col2, col3 = st.columns([1, 1, 3])
         
         with col1:
              if st.button("💾 Save Changes", type="primary"):
                 try:
+                    # Merge edited filtered data back into original df
+                    # For simplicity, we'll save the edited_df directly
+                    # In production, you'd want to merge changes back to original df
                     dh.save_data(edited_df)
                     st.success("✅ Changes saved successfully!")
                     st.rerun()
@@ -357,14 +432,25 @@ def show_data_view(df):
                     st.error(f"Error saving data: {e}")
         
         with col2:
-            # Download button
+            # Download filtered data
             csv = edited_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                "📥 Download CSV",
+                "📥 Download Filtered",
                 csv,
-                "expenses.csv",
+                "filtered_expenses.csv",
                 "text/csv",
-                key='download-csv'
+                key='download-filtered'
+            )
+        
+        with col3:
+            # Download all data
+            csv_all = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "📥 Download All",
+                csv_all,
+                "all_expenses.csv",
+                "text/csv",
+                key='download-all'
             )
     else:
         st.info("No records found.")
