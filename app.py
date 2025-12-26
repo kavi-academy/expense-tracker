@@ -138,6 +138,13 @@ def show_dashboard(df):
     # Additional filters
     date_filter = st.sidebar.date_input("Custom Date Range (Optional)", [])
     
+    # Text Search Filter
+    search_text = st.sidebar.text_input(
+        "🔍 Search",
+        placeholder="Search in description, tags, category...",
+        help="Search across Description, Tags, and Category fields"
+    )
+    
     # Account Filter
     if "Account" in filtered_df.columns:
         unique_accounts = sorted(filtered_df["Account"].unique().tolist())
@@ -156,6 +163,17 @@ def show_dashboard(df):
             (pd.to_datetime(filtered_df["Date"]).dt.date >= start_date) & 
             (pd.to_datetime(filtered_df["Date"]).dt.date <= end_date)
         ]
+    
+    # Apply text search filter
+    if search_text:
+        search_lower = search_text.lower()
+        mask = (
+            filtered_df["Description"].astype(str).str.lower().str.contains(search_lower, na=False) |
+            filtered_df["Tags"].astype(str).str.lower().str.contains(search_lower, na=False) |
+            filtered_df["Category"].astype(str).str.lower().str.contains(search_lower, na=False)
+        )
+        filtered_df = filtered_df[mask]
+    
     if account_filter:
         filtered_df = filtered_df[filtered_df["Account"].isin(account_filter)]
     if category_filter:
