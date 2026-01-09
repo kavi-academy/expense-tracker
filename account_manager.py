@@ -31,6 +31,13 @@ def load_accounts() -> List[Dict]:
         if get_backend() == "service_account":
             accounts = read_sheet_as_dict("Accounts")
             if accounts:
+                # Normalize boolean values from Sheet
+                for acc in accounts:
+                    is_def = acc.get("is_default", False)
+                    if isinstance(is_def, str):
+                        acc["is_default"] = is_def.lower() in ("true", "1", "yes", "y", "checked")
+                    else:
+                        acc["is_default"] = bool(is_def)
                 return accounts
     except:
         pass
@@ -46,6 +53,22 @@ def load_accounts() -> List[Dict]:
 
 def save_accounts(accounts: List[Dict]):
     """Saves accounts to Excel/Google Sheets and JSON fallback."""
+    # Ensure only ONE default survives
+    default_found = False
+    # If multiple are found, the LAST one marked as True in the list will win
+    for acc in reversed(accounts):
+        if acc.get("is_default", False) and not default_found:
+            default_found = True
+        else:
+            acc["is_default"] = False
+    
+    # If no default found, set the first active one
+    if not default_found and accounts:
+        for acc in accounts:
+            if acc.get("status") == "Active":
+                acc["is_default"] = True
+                break
+    
     # Save to Excel/Sheets
     try:
         from data_handler import write_dict_to_sheet, get_backend

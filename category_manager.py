@@ -40,6 +40,13 @@ def load_categories() -> List[Dict]:
         if get_backend() == "service_account":
             categories = read_sheet_as_dict("Categories")
             if categories:
+                # Normalize boolean values from Sheet
+                for cat in categories:
+                    is_def = cat.get("is_default", False)
+                    if isinstance(is_def, str):
+                        cat["is_default"] = is_def.lower() in ("true", "1", "yes", "y", "checked")
+                    else:
+                        cat["is_default"] = bool(is_def)
                 return categories
     except:
         pass
@@ -55,6 +62,27 @@ def load_categories() -> List[Dict]:
 
 def save_categories(categories: List[Dict]):
     """Saves categories to Excel/Google Sheets and JSON fallback."""
+    # Ensure only ONE default per type (Expense/Income)
+    expense_default_found = False
+    income_default_found = False
+    
+    # Process from the end to keep the latest marked as true
+    for cat in reversed(categories):
+        if cat.get("is_default", False):
+            if cat.get("type") == "Expense" and not expense_default_found:
+                expense_default_found = True
+            elif cat.get("type") == "Income" and not income_default_found:
+                income_default_found = True
+            else:
+                cat["is_default"] = False
+    
+    # If no expense default found, set "Others" if it exists
+    if not expense_default_found:
+        for cat in categories:
+            if cat["name"] == "Others":
+                cat["is_default"] = True
+                break
+    
     # Save to Excel/Sheets
     try:
         from data_handler import write_dict_to_sheet, get_backend
