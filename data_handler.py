@@ -110,33 +110,48 @@ def load_data():
     
     if backend == "service_account":
         try:
-            # Use Transactions sheet
+            # Try Transactions sheet first
             worksheet = get_or_create_worksheet("Transactions")
-            if not worksheet: 
-                # Fallback to local if sheet fails
-                st.warning("⚠️ Could not connect to Google Sheet. Using local CSV temporarily.")
-            else:
+            data = []
+            if worksheet:
                 data = worksheet.get_all_records()
-                if not data:
-                    return pd.DataFrame(columns=COLUMNS)
-                
-                df = pd.DataFrame(data)
-                if df.empty:
-                    return pd.DataFrame(columns=COLUMNS)
+            
+            # Migration check: If Transactions is empty, check Sheet1 (the old default)
+            if not data:
+                try:
+                    spreadsheet = get_spreadsheet()
+                    if spreadsheet:
+                        # Try to find the first sheet if Transactions is empty
+                        first_sheet = spreadsheet.get_worksheet(0)
+                        if first_sheet and first_sheet.title != "Transactions":
+                            data = first_sheet.get_all_records()
+                            if data:
+                                st.info(f"🔄 Migrating data from '{first_sheet.title}' to 'Transactions'...")
+                                # We'll save this back to 'Transactions' later via save_data if needed
+                except:
+                    pass
 
-                # Ensure proper columns
-                for col in COLUMNS:
-                    if col not in df.columns:
-                        df[col] = ""
+            if not data:
+                return pd.DataFrame(columns=COLUMNS)
+            
+            df = pd.DataFrame(data)
+            
+            # Ensure proper columns
+            for col in COLUMNS:
+                if col not in df.columns:
+                    df[col] = ""
 
-                # Ensure proper types
-                df["Date"] = pd.to_datetime(df["Date"]).dt.date
-                df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
-                
-                # Migrate for accounts
-                df = migrate_data_for_accounts(df)
-                
-                return df[COLUMNS] 
+            # Ensure proper types
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
+            
+            # Sort by date to ensure historical data is correctly handled
+            df = df.sort_values(by=["Date", "Time"], ascending=[False, False])
+            
+            # Migrate for accounts
+            df = migrate_data_for_accounts(df)
+            
+            return df[COLUMNS] 
                 
         except Exception as e:
             st.error(f"Google Sheets Error: {e}")
@@ -177,13 +192,15 @@ def save_data(df):
         try:
             worksheet = get_or_create_worksheet("Transactions")
             if worksheet:
+                # Ensure Date is string YYYY-MM-DD
+                df_store["Date"] = pd.to_datetime(df_store["Date"]).dt.strftime('%Y-%m-%d')
+                
                 worksheet.clear()
                 worksheet.append_row(df_store.columns.tolist())
                 worksheet.append_rows(df_store.values.tolist())
-                return
+                # Continue to local save for backup
         except Exception as e:
             st.error(f"Failed to save to Google Sheets: {e}")
-            # Fall through to local save as backup
 
     # Local Save
     data_file = get_user_data_file()
@@ -294,7 +311,7 @@ def add_entry(date, category, amount, description, type, payment_method, account
     save_data(df)
     return True
 
-def process_upload(uploaded_file):
+def process_upload(uploaded_file, account_name=None):
     """
     Processes an uploaded Excel file.
     Assumes simple columns: Date, Amount, Description.
@@ -381,9 +398,12 @@ def process_upload(uploaded_file):
         if "Time" not in new_df.columns:
             new_df["Time"] = "00:00"
         if "Account" not in new_df.columns:
-            # Use default account for uploads
-            default_account = am.get_default_account()
-            new_df["Account"] = default_account["name"] if default_account else "Main Account"
+            # Use provided account or fallback to default
+            if account_name:
+                new_df["Account"] = account_name
+            else:
+                default_account = am.get_default_account()
+                new_df["Account"] = default_account["name"] if default_account else "Main Account"
             
         # Apply Auto-Categorization Rules
         new_df = apply_categorization(new_df)

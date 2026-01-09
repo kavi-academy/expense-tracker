@@ -335,19 +335,30 @@ def show_add_expenses():
         st.info("Upload your bank statement or expense sheet (Excel format).")
         st.markdown("**Expected Columns:** Date, Amount, Description/Narration")
         
+        # Account Selection for Upload
+        active_accounts = am.get_active_accounts()
+        account_names = [acc["name"] for acc in active_accounts]
+        default_account = am.get_default_account()
+        default_idx = 0
+        if default_account and default_account["name"] in account_names:
+            default_idx = account_names.index(default_account["name"])
+        
+        selected_upload_account = st.selectbox("Select Account for this Statement", account_names, index=default_idx)
+        
         uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx", "xls"])
         
         if uploaded_file is not None:
-            if st.button("Process Initial Upload"):
-                count, error = dh.process_upload(uploaded_file)
-                if error:
-                    st.error(f"Error: {error}")
-                else:
-                    if count > 0:
-                        st.success(f"Successfully added {count} new transaction(s)!")
-                        st.balloons()
+            if st.button("🚀 Process and Upload"):
+                with st.spinner("Processing statement..."):
+                    count, error = dh.process_upload(uploaded_file, selected_upload_account)
+                    if error:
+                        st.error(f"Error: {error}")
                     else:
-                        st.warning("No new unique transactions found (duplicates skipped).")
+                        if count > 0:
+                            st.success(f"Successfully added {count} new transaction(s) to '{selected_upload_account}'!")
+                            st.balloons()
+                        else:
+                            st.warning("No new unique transactions found (duplicates skipped).")
 
 def show_data_view(df):
     st.header("All Transactions")
@@ -440,11 +451,24 @@ def show_data_view(df):
         with col1:
              if st.button("💾 Save Changes", type="primary"):
                 try:
-                    # Merge edited filtered data back into original df
-                    # For simplicity, we'll save the edited_df directly
-                    # In production, you'd want to merge changes back to original df
-                    dh.save_data(edited_df)
-                    st.success("✅ Changes saved successfully!")
+                    # Robust Merge Logic:
+                    # 1. Identify which rows were NOT visible (not filtered)
+                    all_indices = set(df.index)
+                    filtered_indices = set(filtered_df.index)
+                    remaining_indices = list(all_indices - filtered_indices)
+                    remaining_df = df.loc[remaining_indices]
+                    
+                    # 2. Combine the untouched historical data with the newly edited data
+                    final_df = pd.concat([remaining_df, edited_df], ignore_index=True)
+                    
+                    # 3. Sort by date to keep Excel organized
+                    final_df["Date"] = pd.to_datetime(final_df["Date"]).dt.date
+                    final_df = final_df.sort_values(by=["Date", "Time"], ascending=[False, False])
+                    
+                    # 4. Save the complete, merged dataset
+                    dh.save_data(final_df)
+                    
+                    st.success("✅ Changes saved successfully! All historical data preserved.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
@@ -704,6 +728,8 @@ def show_accounts():
                                 st.rerun()
                             else:
                                 st.error("Cannot delete default account")
+                    else:
+                        st.caption("🛡️ Default account protected")
                 
                 st.divider()
     else:
